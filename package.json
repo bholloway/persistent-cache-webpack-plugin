@@ -1,0 +1,33 @@
+{
+  "name": "persistent-cache-webpack-plugin",
+  "version": "0.0.1",
+  "description": "Webpack plugin that persists the compiler cache to the file system",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bholloway/persistent-cache-webpack-plugin.git"
+  },
+  "keywords": [
+    "webpack",
+    "plugin",
+    "cache",
+    "module",
+    "speed",
+    "compile",
+    "persist"
+  ],
+  "author": "bholloway",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bholloway/persistent-cache-webpack-plugin/issues"
+  },
+  "homepage": "https://github.com/bholloway/persistent-cache-webpack-plugin",
+  "dependencies": {
+    "cycle": "^1.0.3",
+    "lodash.defaults": "^3.1.2",
+    "require-dir": "^0.3.0"
+  },
+  "peerDependencies": {
+    "webpack": "^1.12.0"
+  }
+}
