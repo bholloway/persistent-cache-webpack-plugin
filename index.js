@@ -97,11 +97,7 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
     // serialise and write file
     else {
       stats.serialise.decycle.start = Date.now();
-      try {
-        var decycled = cycle.decycle(encoded);
-      } catch(error) {
-        console.log('>>>>' + error);
-      }
+      var decycled = cycle.decycle(encoded);
       stats.serialise.decycle.stop = Date.now();
 
       stats.serialise.fs.start = Date.now();
