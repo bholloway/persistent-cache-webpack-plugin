@@ -4,6 +4,8 @@
 
 Webpack plugin that persists the compiler cache to the file system
 
+**IMPORTANT - this plugin is an experiment and may be withdrawn at any time**
+
 ## Rationale
 
 Thanks to the Webpack compiler cache, incremental compile can be orders of magnitude faster than the initial compilation the precedes it.
@@ -14,8 +16,9 @@ This plugin persists the compiler cache to the file system in order to also redu
 
 This plugin is experimental and you should be aware of the following.
 
-* The plugin may not be able to serialise all of your cache content, what it can serialise should improve performance.
-* The cache may be large, possibly an **order of magnitude larger than your project**.
+* Implementation is brittle and its effectiveness is not yet clear.
+* The plugin may not be able to serialise all of your cache content, it will warn if it cannot.
+* The cache may be large, possibly an **orders of magnitude larger than your project**.
 * The file which persists the cache can grow with use and may need **periodic deletion**.
 
 ## Usage
