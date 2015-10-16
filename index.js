@@ -2,7 +2,8 @@
 
 var path     = require('path'),
     fs       = require('fs'),
-    defaults = require('lodash.defaults');
+    defaults = require('lodash.defaults'),
+    assign   = require('lodash.assign');
 
 var IGNORE = require('./lib/ignore'),
     cycle  = require('./lib/cycle'),
@@ -15,6 +16,7 @@ function PersistentCacheWebpackPlugin(options) {
     file   : './webpack.cache.json',
     warn   : true,
     stats  : false,
+    persist: true,
     ignore : []
   });
 }
@@ -25,7 +27,7 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
       stats   = {
         deserialise: {
           fs        : {},
-          decode    : {},
+          decode: {},
           retrocycle: {}
         },
         serialise  : {
@@ -70,40 +72,44 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
    * Apply the cache items as defaults.
    */
   function onCompilation(compilation) {
-    defaults(compilation.cache, pending);
+    assign(compilation.cache, pending);
   }
 
   /**
    * Serialise the cache to file, don't wait for async.
    */
   function afterEmit(compilation, callback) {
-    var cache    = compilation.cache,
-        filePath = path.resolve(options.file);
+    if (options.persist) {
+      var cache    = compilation.cache,
+          filePath = path.resolve(options.file);
 
-    stats.serialise.encode.start = Date.now();
-    var encoded  = encode(cache),
-        failures = (encoded.$failed || [])
-          .filter(filterIgnored);
-    delete encoded.$failed;
-    stats.serialise.encode.stop = Date.now();
+      stats.serialise.encode.start = Date.now();
+      var encoded  = encode(cache),
+          failures = (encoded.$failed || [])
+            .filter(filterIgnored);
+      delete encoded.$failed;
+      stats.serialise.encode.stop = Date.now();
 
-    stats.failures = failures.length;
+      stats.failures = failures.length;
 
-    // abort
-    if (failures.length) {
-      stats.serialise.fs.start = Date.now();
-      fs.unlink(filePath, complete.bind(null, true));
+      // abort
+      if (failures.length) {
+        stats.serialise.fs.start = Date.now();
+        fs.unlink(filePath, complete.bind(null, true));
+      }
+      // serialise and write file
+      else {
+        stats.serialise.decycle.start = Date.now();
+        var decycled = cycle.decycle(encoded);
+        stats.serialise.decycle.stop = Date.now();
+
+        stats.serialise.fs.start = Date.now();
+        var buffer = new Buffer(JSON.stringify(decycled, null, 2));
+        stats.serialise.size = buffer.length;
+        fs.writeFile(filePath, buffer, complete);
+      }
     }
-    // serialise and write file
     else {
-      stats.serialise.decycle.start = Date.now();
-      var decycled = cycle.decycle(encoded);
-      stats.serialise.decycle.stop = Date.now();
-
-      stats.serialise.fs.start = Date.now();
-      var buffer = new Buffer(JSON.stringify(decycled, null, 2));
-      stats.serialise.size = buffer.length;
-      fs.writeFile(filePath, buffer, complete);
       complete();
     }
 

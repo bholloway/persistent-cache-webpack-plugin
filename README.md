@@ -27,10 +27,11 @@ var PersistentCacheWebpackPlugin = require('persistent-cache-webpack-plugin');
 {
   plugins : [
     new PersistentCacheWebpackPlugin({
-      file     : './webpack.cache.json',
-      warn     : true,
-      stats    : false,
-      whitelist: []
+      file   : './webpack.cache.json',
+      warn   : true,
+      stats  : false,
+      persist: true,
+      ignore : []
     })
   ]
 }
@@ -43,5 +44,7 @@ var PersistentCacheWebpackPlugin = require('persistent-cache-webpack-plugin');
 * `warn` enables feedback on cache properties that failed the serialisation process, use `warn:'verbose'` for extended detail.
 
 * `stats` enables feedback on the performance of the plugin.
+
+* `persist` enables serialisation of the cache to disk. Existing cache is utilised either way.
 
 * `ignore` an Array of RegExp that allows certain warnings to occur without failing serialisation.
