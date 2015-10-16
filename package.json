@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/bholloway/persistent-cache-webpack-plugin",
   "dependencies": {
+    "cycle": "^1.0.3",
     "is-plain-object": "^2.0.1",
     "lodash.defaults": "^3.1.2",
     "require-dir": "^0.3.0"

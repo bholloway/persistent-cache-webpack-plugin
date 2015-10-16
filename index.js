@@ -21,15 +21,14 @@ function PersistentCacheWebpackPlugin(options) {
 module.exports = PersistentCacheWebpackPlugin;
 
 PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
-  var numCompilation = 0,
-      options        = this.options,
-      stats          = {
-        serialise  : {
+  var options = this.options,
+      stats   = {
+        deserialise: {
           fs        : {},
-          encode: {},
+          decode    : {},
           retrocycle: {}
         },
-        deserialise: {
+        serialise  : {
           encode : {},
           decycle: {},
           fs     : {}
@@ -40,7 +39,7 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
   compiler.plugin('watch-run', onInit);
   compiler.plugin('run', onInit);
   compiler.plugin('compilation', onCompilation);
-  compiler.plugin('after-emit', onDone);
+  compiler.plugin('after-emit', afterEmit);
 
   /**
    * Deserialise any existing file into pending cache elements.
@@ -48,7 +47,7 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
   function onInit(unused, callback) {
     var filePath = path.resolve(options.file);
 
-    stats.deserialise.start = Date.now();
+    stats.deserialise.fs.start = Date.now();
     if (fs.existsSync(filePath)) {
       fs.readFile(filePath, complete);
     } else {
@@ -56,8 +55,12 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
     }
 
     function complete(error, contents) {
-      pending = error ? {} : cycle.retrocycle(decode(contents));
-      stats.deserialise.stop = Date.now();
+      stats.deserialise.fs.stop = Date.now();
+
+      stats.deserialise.decode.start = Date.now();
+      pending = !error && contents && cycle.retrocycle(decode(JSON.parse(contents)));
+      stats.deserialise.decode.stop = Date.now();
+
       stats.deserialise.success = !error;
       callback();
     }
@@ -67,45 +70,40 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
    * Apply the cache items as defaults.
    */
   function onCompilation(compilation) {
-    numCompilation++;
     defaults(compilation.cache, pending);
   }
 
   /**
-   * Serialise the cache to file.
+   * Serialise the cache to file, don't wait for async.
    */
-  function onDone(compilation, callback) {
+  function afterEmit(compilation, callback) {
+    var cache    = compilation.cache,
+        filePath = path.resolve(options.file);
 
-    // act on the final compilation
-    if (--numCompilation === 0) {
-      var cache    = compilation.cache,
-          filePath = path.resolve(options.file);
+    stats.serialise.encode.start = Date.now();
+    var encoded  = encode(cache),
+        failures = (encoded.$failed || [])
+          .filter(filterIgnored);
+    delete encoded.$failed;
+    stats.serialise.encode.stop = Date.now();
 
-      stats.serialise.encode.start = Date.now();
-      var encoded  = encode(cache),
-          failures = (encoded.$failed || [])
-            .filter(filterIgnored);
-      delete encoded.$failed;
-      stats.serialise.encode.stop = Date.now();
+    stats.failures = failures.length;
 
-      stats.failures = failures.length;
+    // abort
+    if (failures.length) {
+      stats.serialise.fs.start = Date.now();
+      fs.unlink(filePath, complete.bind(null, true));
+    }
+    // serialise and write file
+    else {
+      stats.serialise.decycle.start = Date.now();
+      var decycled = cycle.decycle(encoded);
+      stats.serialise.decycle.stop = Date.now();
 
-      // abort
-      if (failures.length) {
-        stats.serialise.fs.start = Date.now();
-        fs.unlink(filePath, complete.bind(null, true));
-      }
-      // serialise and write file
-      else {
-        stats.serialise.decycle.start = Date.now();
-        var decycled = cycle.decycle(encoded);
-        stats.serialise.decycle.stop = Date.now();
-
-        stats.serialise.fs.start = Date.now();
-        var buffer = new Buffer(JSON.stringify(decycled, null, 2));
-        stats.serialise.size = buffer.length;
-        fs.writeFile(filePath, buffer, complete);
-      }
+      stats.serialise.fs.start = Date.now();
+      var buffer = new Buffer(JSON.stringify(decycled, null, 2));
+      stats.serialise.size = buffer.length;
+      fs.writeFile(filePath, buffer, complete);
     }
 
     function complete(error) {
@@ -162,7 +160,11 @@ function printStats(stats) {
   console.log(text);
 
   function getTime(collection) {
-    return collection ? Object.keys(collection).map(eachKey).join(', ') : 'ERROR';
+    return collection && Object.keys(collection).filter(isTime).map(eachKey).join(', ') || '-';
+
+    function isTime(key) {
+      return collection[key].start && collection[key].stop;
+    }
 
     function eachKey(key) {
       return formatFloat((collection[key].stop - collection[key].start) / 1E+3) + ' seconds ' + key;
