@@ -2,24 +2,39 @@
 
 var path     = require('path'),
     fs       = require('fs'),
-    cycle    = require('cycle'),
     defaults = require('lodash.defaults');
 
-var webpackClasses = require('./lib/webpack-classes');
+var IGNORE = require('./lib/ignore'),
+    cycle  = require('./lib/cycle'),
+    encode = require('./lib/encode'),
+    decode = require('./lib/decode');
 
 function PersistentCacheWebpackPlugin(options) {
   this.options = defaults(options || {}, {
-    file : './webpack.cache.json',
-    warn : false,
-    stats: false
+    webpack: null,
+    file   : './webpack.cache.json',
+    warn   : true,
+    stats  : false,
+    ignore : []
   });
 }
 module.exports = PersistentCacheWebpackPlugin;
 
 PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
-  var options  = this.options,
-      stats    = {},
-      failures = [],
+  var numCompilation = 0,
+      options        = this.options,
+      stats          = {
+        serialise  : {
+          fs        : {},
+          encode: {},
+          retrocycle: {}
+        },
+        deserialise: {
+          encode : {},
+          decycle: {},
+          fs     : {}
+        }
+      },
       pending;
 
   compiler.plugin('watch-run', onInit);
@@ -27,10 +42,13 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
   compiler.plugin('compilation', onCompilation);
   compiler.plugin('after-emit', onDone);
 
+  /**
+   * Deserialise any existing file into pending cache elements.
+   */
   function onInit(unused, callback) {
     var filePath = path.resolve(options.file);
 
-    stats.deserialiseStart = Date.now();
+    stats.deserialise.start = Date.now();
     if (fs.existsSync(filePath)) {
       fs.readFile(filePath, complete);
     } else {
@@ -38,73 +56,127 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
     }
 
     function complete(error, contents) {
-      pending = error ? {} : deserialise(contents);
-      stats.deserialiseStop = Date.now();
-      stats.deserialiseSuccess = !error;
+      pending = error ? {} : cycle.retrocycle(decode(contents));
+      stats.deserialise.stop = Date.now();
+      stats.deserialise.success = !error;
       callback();
     }
   }
 
+  /**
+   * Apply the cache items as defaults.
+   */
   function onCompilation(compilation) {
+    numCompilation++;
     defaults(compilation.cache, pending);
   }
 
+  /**
+   * Serialise the cache to file.
+   */
   function onDone(compilation, callback) {
-    var cache    = compilation.cache,
-        filePath = path.resolve(options.file);
 
-    stats.serialiseStart = Date.now();
-    fs.writeFile(filePath, serialise(cache), complete);
+    // act on the final compilation
+    if (--numCompilation === 0) {
+      var cache    = compilation.cache,
+          filePath = path.resolve(options.file);
+
+      stats.serialise.encode.start = Date.now();
+      var encoded  = encode(cache),
+          failures = (encoded.$failed || [])
+            .filter(filterIgnored);
+      delete encoded.$failed;
+      stats.serialise.encode.stop = Date.now();
+
+      stats.failures = failures.length;
+
+      // abort
+      if (failures.length) {
+        stats.serialise.fs.start = Date.now();
+        fs.unlink(filePath, complete.bind(null, true));
+      }
+      // serialise and write file
+      else {
+        stats.serialise.decycle.start = Date.now();
+        var decycled = cycle.decycle(encoded);
+        stats.serialise.decycle.stop = Date.now();
+
+        stats.serialise.fs.start = Date.now();
+        var buffer = new Buffer(JSON.stringify(decycled, null, 2));
+        stats.serialise.size = buffer.length;
+        fs.writeFile(filePath, buffer, complete);
+      }
+    }
 
     function complete(error) {
-      stats.serialiseStop = Date.now();
-      stats.serialiseSuccess = !error;
-      options.warn && printWarnings();
-      options.stats && printStats();
+      stats.serialise.fs.stop = Date.now();
+      stats.serialise.success = !error;
+      options.warn && pushFailures(failures, compilation.warnings, (options.warn === 'verbose'));
+      options.stats && printStats(stats);
       callback();
     }
   }
 
-  function deserialise(text) {
+  function filterIgnored(value) {
+    return !IGNORE.concat(options.ignore).some(testRegex);
 
-  }
-
-  function serialise(value) {
-console.log(Object.keys(value))
-    return JSON.stringify(cycle.decycle(value), replacer, 2);
-
-    function replacer(key, value) {
-
-      // object
-      if (value && (typeof value === 'object') && (key !== '$props')) {
-
-        // anything other than an Object literal or an Array may be instances
-        var isPlain   = Array.isArray(value) || (value.constructor === Object),
-            className = !isPlain && webpackClasses.getName(value);
-        if (className) {
-          return {
-            $class: className,
-            $props: value
-          };
-        }
-        // could be a failure
-        else if (!isPlain) {
-          failures.push(key);
-        }
-      }
-
-      // non-instance
-      return value;
+    function testRegex(regex) {
+      return regex.test(value);
     }
   }
+};
 
-  function printWarnings() {
-
+function pushFailures(failures, array, isVerbose) {
+  if (failures.length) {
+    var text = ['persistent-cache-webpack-plugin: failed to serialise the compiler cache']
+      .concat(failures.map(eachFailure).filter(firstOccurance))
+      .join('\n');
+    array.push(text);
   }
 
-  function printStats() {
+  function eachFailure(value) {
+    return isVerbose ? value.map(addIndent).join('\n') : addIndent(value[0], 0);
+  }
 
+  function firstOccurance(value, i, array) {
+    return (array.indexOf(value) === i);
+  }
+
+  function addIndent(value, i) {
+    return (new Array(4 + i * 2)).join(' ') + value;
   }
 }
 
+function printStats(stats) {
+  var text = [
+    'persistent-cache-webpack-plugin: statistics',
+    '    deserialise:',
+    '        success: ' + stats.deserialise.success,
+    '        size   : ' + formatFloat(stats.deserialise.size / 1E+6) + ' MB',
+    '        time   : ' + getTime(stats.deserialise),
+    '    serialise:',
+    '        success: ' + stats.serialise.success + ', ' + stats.failures + ' encoder failures',
+    '        size   : ' + formatFloat(stats.serialise.size / 1E+6) + ' MB',
+    '        time   : ' + getTime(stats.serialise)
+  ].join('\n');
+  console.log(text);
 
+  function getTime(collection) {
+    return collection ? Object.keys(collection).map(eachKey).join(', ') : 'ERROR';
+
+    function eachKey(key) {
+      return formatFloat((collection[key].stop - collection[key].start) / 1E+3) + ' seconds ' + key;
+    }
+  }
+}
+
+function formatFloat(value) {
+  if (isNaN(value)) {
+    return '-';
+  }
+  else {
+    var integer = Math.round(value),
+        decimal = Math.floor((value % 1.0) * 1E+3);
+    return integer + '.' + String(decimal + '000').slice(0, 3);
+  }
+}

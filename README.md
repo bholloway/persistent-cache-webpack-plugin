@@ -20,16 +20,17 @@ This plugin is experimental and you should be aware of the following.
 
 ## Usage
 
-The default options will result in silent operation.
+The default options will result in silent operation unless the cache cannot be written.
 
 ```javascript
 var PersistentCacheWebpackPlugin = require('persistent-cache-webpack-plugin');
 {
   plugins : [
     new PersistentCacheWebpackPlugin({
-	  file : './webpack.cache.json',
-      warn : false,
-	  stats: false
+      file     : './webpack.cache.json',
+      warn     : true,
+      stats    : false,
+      whitelist: []
     })
   ]
 }
@@ -39,6 +40,8 @@ var PersistentCacheWebpackPlugin = require('persistent-cache-webpack-plugin');
 
 * `file` is the path to a file which will persist the cache.
 
-* `warn` enables feedback on cache entries that could not be serialised, useful for reporting issues.
+* `warn` enables feedback on cache properties that failed the serialisation process, use `warn:'verbose'` for extended detail.
 
-* `stats` enables feeback on the performance of the plugin.
+* `stats` enables feedback on the performance of the plugin.
+
+* `ignore` an Array of RegExp that allows certain warnings to occur without failing serialisation.
