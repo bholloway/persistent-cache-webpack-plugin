@@ -79,14 +79,15 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
    * Serialise the cache to file, don't wait for async.
    */
   function afterEmit(compilation, callback) {
+    var failures;
     if (options.persist) {
       var cache    = compilation.cache,
           filePath = path.resolve(options.file);
 
       stats.serialise.encode.start = Date.now();
-      var encoded  = encode(cache),
-          failures = (encoded.$failed || [])
-            .filter(filterIgnored);
+      var encoded = encode(cache);
+      failures = (encoded.$failed || [])
+        .filter(filterIgnored);
       delete encoded.$failed;
       stats.serialise.encode.stop = Date.now();
 
@@ -110,6 +111,7 @@ PersistentCacheWebpackPlugin.prototype.apply = function apply(compiler) {
       }
     }
     else {
+      failures = [];
       complete();
     }
 
